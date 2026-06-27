@@ -1,0 +1,86 @@
+# 炒股视频 RAG 系统配置
+# API key 不要写在这里——从环境变量读取（见 .env.example）。
+
+paths:
+  audio: audios                # 已有的 .m4a 音频（软链到 Downloads，972 个）
+  manifest: data/manifest.json # 扫描音频+解析文件名得到的清单
+  transcripts: data/transcripts # ASR 转写 JSON
+  chunks: data/chunks          # 分段 + metadata
+  hotwords: data/hotwords.txt  # ASR 热词表（个股名/术语，一行一个）
+
+audio_format: m4a              # 已有音频格式，阿里云/OpenAI 均直接支持，无需转码
+
+# ASR 本地跑（faster-whisper，离线免费）；向量/重排/生成走阿里云百炼，
+# 共用一个 DASHSCOPE_API_KEY。本地 ASR 无需 OSS。
+asr:
+  provider: mlx_whisper        # mlx_whisper(Apple GPU) | faster_whisper(CPU) | dashscope | openai
+  language: zh
+  # --- 本地 mlx-whisper：走 Apple Silicon GPU(MLX)，可跑 large-v3 仍快；直接读 m4a ---
+  mlx_whisper:
+    model: mlx-community/whisper-large-v3-turbo  # 质量好且快；要极致质量换 whisper-large-v3-mlx
+  # --- 本地 faster-whisper：纯 CPU(CTranslate2)，无 Apple GPU 时用 ---
+  faster_whisper:
+    model: medium              # tiny/base/small/medium/large-v3；中文建议 medium 起步
+    device: cpu                # cpu | cuda（Mac 用 cpu，CTranslate2 暂不支持 MPS）
+    compute_type: int8         # int8 最省最快；精度优先用 int8_float16 / float16
+    vad_filter: true           # 用 VAD 去静音，减少幻听
+    beam_size: 5
+  # --- 阿里云 Paraformer：长音频原生支持、句级时间戳、热词，无需切片 ---
+  dashscope_model: paraformer-v2
+  dashscope_api_key_env: DASHSCOPE_API_KEY
+  vocabulary_id: ""            # 可选：热词表ID，跑 pipeline.make_vocabulary 生成后填这里
+  batch_size: 50              # Paraformer 单任务可批量多个 URL，分批提交
+  oss:                        # Paraformer 要求音频经公网 URL，先传 OSS 再签名
+    bucket: your-bucket-name
+    endpoint: oss-cn-hangzhou.aliyuncs.com   # 按你的 bucket 所在区域填
+    prefix: jiucai-asr/        # 对象前缀
+    access_key_id_env: OSS_ACCESS_KEY_ID
+    access_key_secret_env: OSS_ACCESS_KEY_SECRET
+    url_expire_seconds: 7200   # 签名URL有效期
+    delete_after: true         # 转写完成后删除 OSS 对象
+  # --- OpenAI 备用分支（provider=openai 时用，需切片规避 25MB）---
+  openai_model: whisper-1
+  openai_base_url: https://api.openai.com/v1
+  openai_api_key_env: OPENAI_API_KEY
+  segment_seconds: 600
+  segment_format: mp3
+
+embedding:
+  # 阿里云百炼 text-embedding-v3（OpenAI 兼容接口）
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  model: text-embedding-v4
+  dim: 1024
+  batch_size: 10              # text-embedding-v3 兼容接口单次最多 10 条
+  api_key_env: DASHSCOPE_API_KEY
+
+rerank:
+  # 阿里云百炼 gte-rerank-v2（DashScope 原生格式，非 OpenAI 兼容）
+  format: dashscope          # dashscope | siliconflow
+  base_url: https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank
+  model: gte-rerank-v2
+  api_key_env: DASHSCOPE_API_KEY
+
+vector_store:
+  # 本地 Qdrant：docker run -p 6333:6333 qdrant/qdrant
+  url: http://localhost:6333
+  collection: jiucai_chunks
+
+llm:
+  # 阿里云百炼 qwen-plus（OpenAI 兼容接口）
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  model: qwen-plus
+  api_key_env: DASHSCOPE_API_KEY
+  temperature: 0.2
+
+chunking:
+  max_chars: 450      # 每块最大字数
+  overlap_chars: 80   # 相邻块重叠（按句段回退实现）
+  min_chars: 80       # 过短的块丢弃
+
+entity:
+  lexicon: data/lexicon.txt  # 个股/板块词典，一行一个；用于按股票过滤聚合
+  match_stock_code: true     # 额外用正则抽 A股6位/港股代码
+
+retrieval:
+  top_k: 20           # hybrid 初检数量
+  top_n: 6            # rerank 后保留送入 LLM

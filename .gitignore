@@ -1,0 +1,23 @@
+# 密钥
+.env
+
+# 音频源（外部软链，不入库）
+audios
+
+# 数据产物（体积大 / 私有）
+data/transcripts/
+data/chunks/
+data/manifest.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# 本地 Qdrant 存储
+qdrant_storage/
+
+# OS
+.DS_Store
