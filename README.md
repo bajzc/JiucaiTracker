@@ -4,7 +4,33 @@
 回答"某只个股/板块的买卖逻辑"等问题。范式是 **RAG，不做微调**——
 答案均带出处（视频标题 + 时间戳），检索不到就明说"资料未提及"，不编造。
 
-完整设计见 `~/.claude/plans/1200-20-rag-iterative-pearl.md`。
+## 快速开始（预构建版，无需音频）
+
+压缩包内已含预构建的向量库（`qdrant_storage/`），解压后三步即可提问，
+**不需要下载任何音频文件**。
+
+**前置要求：** Python 3.10+、Docker、[阿里云百炼 API Key](https://bailian.console.aliyun.com)（向量化/重排/生成共用一个 key）
+
+```bash
+# 1. 解压并进入目录
+unzip jiucai_tracker.zip -d jiucai_tracker && cd jiucai_tracker
+
+# 2. 安装 Python 依赖
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+
+# 3. 填写 API Key
+cp .env.example .env          # 用编辑器打开 .env，填入 DASHSCOPE_API_KEY=<你的key>
+
+# 4. 启动本地 Qdrant（加载预构建向量库）
+docker run -d -p 6333:6333 -v $(pwd)/qdrant_storage:/qdrant/storage qdrant/qdrant
+
+# 5. 开始提问
+.venv/bin/python app.py                           # 交互模式
+.venv/bin/python app.py -q "白云山的买卖逻辑是什么？"  # 单次提问
+```
+
+---
 
 ## 数据规模
 
