@@ -13,7 +13,11 @@ SYSTEM = """你是一个炒股视频内容的问答助手。严格遵守：
    并指出是哪一天、什么背景下的判断。"""
 
 
-def build_messages(question: str, contexts: list[Context]) -> list[dict]:
+def build_messages(
+    question: str,
+    contexts: list[Context],
+    history: list[dict] | None = None,
+) -> list[dict]:
     if not contexts:
         blocks = "（无检索结果）"
     else:
@@ -23,5 +27,6 @@ def build_messages(question: str, contexts: list[Context]) -> list[dict]:
     user = f"【资料】\n{blocks}\n\n【问题】\n{question}"
     return [
         {"role": "system", "content": SYSTEM},
+        *(history or []),
         {"role": "user", "content": user},
     ]

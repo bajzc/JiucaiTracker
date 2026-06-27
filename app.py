@@ -15,7 +15,7 @@ from rich.panel import Panel
 
 from pipeline.common import dbg, is_debug, load_config, require_env, set_debug
 from rag.prompts import build_messages
-from rag.query import retrieve
+from rag.query import retrieve, rewrite_query
 
 console = Console()
 
@@ -38,17 +38,19 @@ def llm_answer(messages: list[dict], cfg: dict) -> str:
     return reply
 
 
-def answer(question: str, cfg: dict) -> None:
-    contexts = retrieve(question, cfg)
+def answer(question: str, cfg: dict, history: list[dict] | None = None) -> str | None:
+    retrieval_query = rewrite_query(question, history or [], cfg)
+    contexts = retrieve(retrieval_query, cfg)
     if not contexts:
         console.print("[yellow]资料中未检索到相关内容。[/yellow]")
-        return
-    reply = llm_answer(build_messages(question, contexts), cfg)
+        return None
+    reply = llm_answer(build_messages(question, contexts, history), cfg)
     console.print(Panel(Markdown(reply), title="回答", border_style="green"))
     console.print("[dim]检索到的出处：[/dim]")
     for i, c in enumerate(contexts, 1):
         console.print(f"  [cyan][{i}][/cyan] {c.cite()}  "
                       f"[dim]相关度={c.score:.3f} 个股={c.stocks}[/dim]")
+    return reply
 
 
 def main() -> None:
@@ -65,12 +67,16 @@ def main() -> None:
         return
 
     console.print("[bold]炒股视频问答[/bold]（输入问题，Ctrl-C / 空行退出）")
+    history: list[dict] = []
     try:
         while True:
             q = console.input("\n[bold cyan]问> [/bold cyan]").strip()
             if not q:
                 break
-            answer(q, cfg)
+            reply = answer(q, cfg, history)
+            if reply is not None:
+                history.append({"role": "user", "content": q})
+                history.append({"role": "assistant", "content": reply})
     except (KeyboardInterrupt, EOFError):
         console.print("\n再见。")
 

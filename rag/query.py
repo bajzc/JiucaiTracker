@@ -36,6 +36,40 @@ def _qdrant_client(cfg: dict):
     return QdrantClient(url=cfg["vector_store"]["url"])
 
 
+def rewrite_query(question: str, history: list[dict], cfg: dict) -> str:
+    """用对话历史将含指代词的问题改写为独立检索查询。历史为空时直接返回原问题。"""
+    if not history:
+        dbg("REWRITE · 查询改写", f"no history")
+        return question
+    import httpx as _httpx
+    lc = cfg["llm"]
+    history_text = "\n".join(
+        f"{'用户' if m['role'] == 'user' else '助手'}：{m['content']}" for m in history[-4:]
+    )
+    prompt = (
+        "根据以下对话历史，将\"最新问题\"改写为一个独立、完整的检索查询，"
+        "展开所有指代词（如\"这个\"\"它\"\"上面提到的\"等），保留关键实体。"
+        "若问题本身已足够独立，原样返回。只输出改写后的查询，不要任何解释。\n\n"
+        f"【对话历史】\n{history_text}\n\n"
+        f"【最新问题】\n{question}\n\n"
+        "【改写后的查询】"
+    )
+    headers = {"Authorization": f"Bearer {require_env(lc['api_key_env'])}",
+               "Content-Type": "application/json"}
+    payload = {
+        "model": lc["model"],
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0,
+        "max_tokens": 128,
+    }
+    url = lc["base_url"].rstrip("/") + "/chat/completions"
+    resp = _httpx.post(url, headers=headers, json=payload, timeout=30)
+    resp.raise_for_status()
+    rewritten = resp.json()["choices"][0]["message"]["content"].strip()
+    dbg("REWRITE · 查询改写", f"原始: {question}\n改写: {rewritten}")
+    return rewritten
+
+
 def detect_stocks(question: str, cfg: dict) -> list[str]:
     lexicon = load_lexicon(cfg)
     return extract_entities(question, lexicon, cfg["entity"]["match_stock_code"])
